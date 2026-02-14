@@ -48,12 +48,15 @@ class _ImuScreenState extends State<ImuScreen> {
         final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
         if (mounted) setState(() => _rawLogs.add('$hex  (${bytes.length} B)'));
         if (bytes.length >= 12) {
+          // STARTIMU data is big-endian (overview): 6 bytes acc + 6 bytes gyro per sample.
+          // Use parseImu only; do not use parseAcc here (that is for STARTACC, little-endian).
           final imu = ImuParser.parseImu(bytes);
-          final acc = ImuParser.parseAcc(bytes);
           if (mounted) {
             setState(() {
               _gyroSamples.addAll(imu);
-              _accSamples.addAll(acc);
+              for (final s in imu) {
+                _accSamples.add(AccelSample(x: s.accX, y: s.accY, z: s.accZ, timestamp: s.timestamp));
+              }
               while (_gyroSamples.length > maxSamples) _gyroSamples.removeAt(0);
               while (_accSamples.length > maxSamples) _accSamples.removeAt(0);
             });
