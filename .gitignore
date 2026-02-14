@@ -28,3 +28,4 @@ ios/Flutter/Flutter.podspec
 # Misc
 *.log
 .DS_Store
+jdk17.tar.gz

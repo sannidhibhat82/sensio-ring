@@ -12,14 +12,17 @@ class PpgParser {
     0x44: 'HIGH_VARIANCE',
   };
 
+  /// Minimum length: error(1) + PPG(384) + HR(1) + RMSSD(1) = 387 (overview: 0-based byte 385=HR, 386=RMSSD).
+  static const int minLength = 387;
+
   static HrmHrvData? parse(List<int> bytes) {
-    if (bytes.length < 387) return null;
+    if (bytes.length < minLength) return null;
     final errorCode = bytes[0];
     final hex = errorCode.toRadixString(16);
     final errorMessage = errorMessages[errorCode] ?? 'Unknown (0x$hex)';
 
     final ppgSamples = <int>[];
-    for (int i = 1; i + 2 <= 384; i += 3) {
+    for (int i = 1; i + 2 <= 384 && i + 2 < bytes.length; i += 3) {
       final flag = (bytes[i] >> 4) & 0x0F;
       final low = (bytes[i] & 0x0F) << 16;
       final mid = bytes[i + 1] << 8;
@@ -27,6 +30,7 @@ class PpgParser {
       ppgSamples.add(low | mid | high);
     }
 
+    // Overview (0-based): byte 385 = HR, byte 386 = RMSSD
     final heartRateBpm = bytes[385];
     final rmssdMs = bytes[386];
     final rrIntervalsMs = <double>[];

@@ -18,6 +18,7 @@ class BleService {
   BluetoothCharacteristic? _charCustom;
   int _cachedMtu = 23;
   bool _cachedConnected = false;
+  StreamSubscription<BluetoothConnectionState>? _connectionSub;
 
   final StreamController<List<int>> _vitalsNotifications =
       StreamController<List<int>>.broadcast();
@@ -58,6 +59,15 @@ class BleService {
     await _enableNotifications();
 
     _cachedConnected = true;
+    _connectionSub?.cancel();
+    _connectionSub = _device!.connectionState.listen((state) {
+      if (state == BluetoothConnectionState.disconnected) {
+        if (_cachedConnected) {
+          _cachedConnected = false;
+          BleLogger.log('Device disconnected.');
+        }
+      }
+    });
     BleLogger.log('Connected. MTU: $_cachedMtu');
   }
 
@@ -114,6 +124,9 @@ class BleService {
   }
 
   Future<void> writeVitals(String command) async {
+    if (!_cachedConnected || _device == null) {
+      throw StateError('Device not connected. Please reconnect from the home screen.');
+    }
     if (_charVitals == null) {
       throw StateError('Vitals characteristic not available');
     }
@@ -123,6 +136,9 @@ class BleService {
   }
 
   Future<void> writeCustom(String command) async {
+    if (!_cachedConnected || _device == null) {
+      throw StateError('Device not connected. Please reconnect from the home screen.');
+    }
     if (_charCustom == null) {
       throw StateError('Custom characteristic not available');
     }
@@ -132,6 +148,8 @@ class BleService {
   }
 
   Future<void> disconnect() async {
+    _connectionSub?.cancel();
+    _connectionSub = null;
     await _disconnectIfConnected();
     _device = null;
     _charVitals = null;

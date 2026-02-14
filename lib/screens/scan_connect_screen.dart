@@ -40,6 +40,7 @@ class _ScanConnectScreenState extends State<ScanConnectScreen> {
         if (!mounted) return;
         setState(() {
           for (final r in list) {
+            if (!_isSensioDevice(r)) continue;
             if (!_results.any((e) => e.device.remoteId == r.device.remoteId)) {
               _results.add(r);
             }
@@ -55,6 +56,18 @@ class _ScanConnectScreenState extends State<ScanConnectScreen> {
         await _ble.stopScan();
       }
     }
+  }
+
+  /// True if this scan result is a SENSIO device (show only these in the list).
+  bool _isSensioDevice(ScanResult r) {
+    final adv = r.advertisementData;
+    final advName = (adv.advName ?? adv.localName ?? '').trim();
+    final name = advName.isEmpty
+        ? (r.device.platformName.isEmpty ? '' : r.device.platformName)
+        : advName;
+    final displayName =
+        name.isEmpty ? r.device.remoteId.toString() : name;
+    return displayName.toUpperCase().contains(BleConstants.deviceNameFilter);
   }
 
   Future<void> _connect(BluetoothDevice device) async {
@@ -108,7 +121,18 @@ class _ScanConnectScreenState extends State<ScanConnectScreen> {
       ),
       body: _connecting
           ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
+          : _results.isEmpty && !_scanning
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No SENSIO devices found.\nOnly SENSIO devices are shown.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                )
+              : ListView.builder(
               itemCount: _results.length,
               itemBuilder: (context, i) {
                 final r = _results[i];
@@ -120,11 +144,10 @@ class _ScanConnectScreenState extends State<ScanConnectScreen> {
                         : r.device.platformName)
                     : advName;
                 final displayName = name.isEmpty ? r.device.remoteId.toString() : name;
-                final isSensio = displayName.toUpperCase().contains(BleConstants.deviceNameFilter);
                 return ListTile(
-                  leading: Icon(
+                  leading: const Icon(
                     Icons.bluetooth,
-                    color: isSensio ? Colors.green : null,
+                    color: Colors.green,
                   ),
                   title: Text(displayName),
                   subtitle: Text(r.device.remoteId.toString()),
