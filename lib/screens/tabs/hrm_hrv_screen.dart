@@ -2,20 +2,22 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/hrm_hrv_data.dart';
 import '../../services/ble_service.dart';
+import '../../providers/realtime_metrics_provider.dart';
 import '../../utils/parsers/ppg_parser.dart';
 import '../../widgets/raw_data_drawer.dart';
 
-class HrmHrvScreen extends StatefulWidget {
+class HrmHrvScreen extends ConsumerStatefulWidget {
   const HrmHrvScreen({super.key});
 
   @override
-  State<HrmHrvScreen> createState() => _HrmHrvScreenState();
+  ConsumerState<HrmHrvScreen> createState() => _HrmHrvScreenState();
 }
 
-class _HrmHrvScreenState extends State<HrmHrvScreen> {
+class _HrmHrvScreenState extends ConsumerState<HrmHrvScreen> {
   final BleService _ble = BleService.instance;
   StreamSubscription<List<int>>? _sub;
   StreamSubscription<BluetoothConnectionState>? _connectionSub;
@@ -80,6 +82,8 @@ class _HrmHrvScreenState extends State<HrmHrvScreen> {
           final d = PpgParser.parse(_buffer);
           if (d != null && mounted) {
             setState(() => _last = d);
+            ref.read(realtimeMetricsProvider.notifier).setHeartRate(d.heartRateBpm);
+            ref.read(realtimeMetricsProvider.notifier).setHrv(d.rmssdMs);
             _buffer.clear();
           }
         }

@@ -1,12 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'screens/home_screen.dart';
-import 'utils/ble_logger.dart';
+import 'themes/app_theme.dart';
+import 'themes/app_colors.dart';
+import 'presentation/screens/app_shell.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const SensioRingApp());
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: AppColors.surface,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
+  runApp(
+    const ProviderScope(
+      child: SensioRingApp(),
+    ),
+  );
 }
 
 class SensioRingApp extends StatelessWidget {
@@ -17,15 +31,10 @@ class SensioRingApp extends StatelessWidget {
     return MaterialApp(
       title: 'SENSIO Ring',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.light),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
-      home: const HomeScreen(),
+      theme: AppTheme.dark,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.dark,
+      home: const AppShell(),
     );
   }
 }

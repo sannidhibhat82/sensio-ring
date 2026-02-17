@@ -1,21 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/temperature_reading.dart';
 import '../../services/ble_service.dart';
+import '../../providers/realtime_metrics_provider.dart';
 import '../../utils/ble_logger.dart';
 import '../../utils/parsers/temperature_parser.dart';
 import '../../widgets/raw_data_drawer.dart';
 
-class TemperatureScreen extends StatefulWidget {
+class TemperatureScreen extends ConsumerStatefulWidget {
   const TemperatureScreen({super.key});
 
   @override
-  State<TemperatureScreen> createState() => _TemperatureScreenState();
+  ConsumerState<TemperatureScreen> createState() => _TemperatureScreenState();
 }
 
-class _TemperatureScreenState extends State<TemperatureScreen> {
+class _TemperatureScreenState extends ConsumerState<TemperatureScreen> {
   final BleService _ble = BleService.instance;
   StreamSubscription<List<int>>? _sub;
   TemperatureReading? _last;
@@ -43,10 +45,13 @@ class _TemperatureScreenState extends State<TemperatureScreen> {
         BleLogger.logFromDevice('Custom (after STARTTEMP)', bytes);
         final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
         final r = TemperatureParser.parse(bytes);
-        if (mounted) setState(() {
-          _rawLogs.add('$hex  (${bytes.length} B)${r != null ? ' → ${r.celsius.toStringAsFixed(2)} °C (raw: ${r.raw})' : ''}');
-          if (r != null) _last = r;
-        });
+        if (mounted) {
+          setState(() {
+            _rawLogs.add('$hex  (${bytes.length} B)${r != null ? ' → ${r.celsius.toStringAsFixed(2)} °C (raw: ${r.raw})' : ''}');
+            if (r != null) _last = r;
+          });
+          if (r != null) ref.read(realtimeMetricsProvider.notifier).setTemperature(r.celsius);
+        }
       });
     } catch (e) {
       BleLogger.log('Error starting temperature streaming: $e');
