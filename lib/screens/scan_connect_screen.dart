@@ -40,7 +40,7 @@ class _ScanConnectScreenState extends State<ScanConnectScreen> {
         if (!mounted) return;
         setState(() {
           for (final r in list) {
-            if (!_isSensioDevice(r)) continue;
+            // if (!_isSensioDevice(r)) continue;
             if (!_results.any((e) => e.device.remoteId == r.device.remoteId)) {
               _results.add(r);
             }

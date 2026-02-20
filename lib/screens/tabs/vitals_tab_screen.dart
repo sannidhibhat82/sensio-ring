@@ -65,7 +65,8 @@ class _Sts40Tab extends StatefulWidget {
 }
 
 class _Sts40TabState extends State<_Sts40Tab> {
-  StreamSubscription<List<int>>? _sub;
+  StreamSubscription<List<int>>? _subCustom;
+  StreamSubscription<List<int>>? _subVitals;
   double? _lastTempC;
   int? _lastRawByte;
   final List<String> _rawLogs = [];
@@ -74,6 +75,21 @@ class _Sts40TabState extends State<_Sts40Tab> {
   static bool _isCommandEcho(List<int> bytes) {
     if (bytes.length < 6 || bytes.length > 16) return false;
     return bytes.every((b) => b >= 0x20 && b <= 0x7E);
+  }
+
+  void _onSts40Data(List<int> bytes) {
+    if (_isCommandEcho(bytes)) return;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    final converted = bytes.map((b) => '${((b + 200) / 10.0).toStringAsFixed(1)} °C').join(', ');
+    if (mounted) {
+      setState(() {
+        _rawLogs.add('$hex  (${bytes.length} B) → $converted');
+        if (bytes.isNotEmpty) {
+          _lastRawByte = bytes.last;
+          _lastTempC = (bytes.last + 200) / 10.0;
+        }
+      });
+    }
   }
 
   Future<void> _start() async {
@@ -85,31 +101,27 @@ class _Sts40TabState extends State<_Sts40Tab> {
       _lastRawByte = null;
     });
     await widget.ble.writeCustom('STARTSTS40');
-    _sub = widget.ble.customNotifications.listen((bytes) {
+    // Device may send STS40 temperature on Custom or on Vitals; listen to both.
+    _subCustom = widget.ble.customNotifications.listen(_onSts40Data);
+    _subVitals = widget.ble.vitalsNotifications.listen((bytes) {
       if (_isCommandEcho(bytes)) return;
-      final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-      final converted = bytes.map((b) => '${((b + 200) / 10.0).toStringAsFixed(1)} °C').join(', ');
-      if (mounted) {
-        setState(() {
-          _rawLogs.add('$hex  (${bytes.length} B) → $converted');
-          if (bytes.isNotEmpty) {
-            _lastRawByte = bytes.last;
-            _lastTempC = (bytes.last + 200) / 10.0;
-          }
-        });
-      }
+      _onSts40Data(bytes);
     });
   }
 
   Future<void> _stop() async {
-    _sub?.cancel();
+    _subCustom?.cancel();
+    _subCustom = null;
+    _subVitals?.cancel();
+    _subVitals = null;
     await widget.ble.writeCustom('STOPSTS40');
     setState(() => _streaming = false);
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    _subCustom?.cancel();
+    _subVitals?.cancel();
     super.dispose();
   }
 
@@ -276,10 +288,13 @@ class _GetVitalsTabState extends State<_GetVitalsTab> {
 
   void _drainVitalsBuffer() {
     if (!_headerRead || _vitalsBuffer.isEmpty) return;
-    final maxSig = _sigF * 60;
-    final maxStep = _stepF * 60;
-    final maxTemp = _tempF * 60;
-    final maxHr = _hrF * 60;
+    // Doc: "number of frame" with chunks up to 60 bytes → max = count * 60.
+    // Some devices send sample counts (1 byte = 1 value); if any count > 60 use as byte counts.
+    final useSampleCounts = _sigF > 60 || _stepF > 60 || _tempF > 60 || _hrF > 60;
+    final maxSig = useSampleCounts ? _sigF : _sigF * 60;
+    final maxStep = useSampleCounts ? _stepF : _stepF * 60;
+    final maxTemp = useSampleCounts ? _tempF : _tempF * 60;
+    final maxHr = useSampleCounts ? _hrF : _hrF * 60;
     int i = 0;
     while (i < _vitalsBuffer.length) {
       if (_sigMot.length < maxSig) {
@@ -311,20 +326,29 @@ class _GetVitalsTabState extends State<_GetVitalsTab> {
       _headerRead = false;
     });
     await widget.ble.writeVitals('GETVITALS');
+    // Skip command echo: device echoes "GETVITALS" (9 bytes) back; do not add to buffer (overview.md)
+    const getVitalsEcho = [0x47, 0x45, 0x54, 0x56, 0x49, 0x54, 0x41, 0x4c, 0x53];
+    bool isGetVitalsEcho(List<int> b) =>
+        b.length == 9 &&
+        b[0] == 0x47 && b[1] == 0x45 && b[2] == 0x54 && b[3] == 0x56 &&
+        b[4] == 0x49 && b[5] == 0x54 && b[6] == 0x41 && b[7] == 0x4c && b[8] == 0x53;
     _sub = widget.ble.vitalsNotifications.listen((bytes) {
       final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
       if (mounted) {
-        setState(() => _rawLogs.add('$hex  (${bytes.length} B)'));
-        _vitalsBuffer.addAll(bytes);
-        if (!_headerRead && _vitalsBuffer.length >= 4) {
-          _headerRead = true;
-          _sigF = _vitalsBuffer[0];
-          _stepF = _vitalsBuffer[1];
-          _tempF = _vitalsBuffer[2];
-          _hrF = _vitalsBuffer[3];
-          _vitalsBuffer.removeRange(0, 4);
-        }
-        _drainVitalsBuffer();
+        setState(() {
+          _rawLogs.add('$hex  (${bytes.length} B)');
+          if (isGetVitalsEcho(bytes)) return;
+          _vitalsBuffer.addAll(bytes);
+          if (!_headerRead && _vitalsBuffer.length >= 4) {
+            _headerRead = true;
+            _sigF = _vitalsBuffer[0];
+            _stepF = _vitalsBuffer[1];
+            _tempF = _vitalsBuffer[2];
+            _hrF = _vitalsBuffer[3];
+            _vitalsBuffer.removeRange(0, 4);
+          }
+          _drainVitalsBuffer();
+        });
       }
     });
     await Future.delayed(const Duration(seconds: 32));
@@ -347,7 +371,11 @@ class _GetVitalsTabState extends State<_GetVitalsTab> {
         children: [
           const Text('Stored Vitals (GETVITALS)', style: TextStyle(fontSize: 14, color: Colors.grey)),
           const SizedBox(height: 4),
-          const Text('SigMot, Steps, Temperature (°C), Heart Rate from flash.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          const Text('Data order: SigMot → Steps → Temperature (°C) → Heart Rate. Wait up to 30s for full transfer.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          if (_headerRead) ...[
+            const SizedBox(height: 8),
+            Text('Header (counts): SigMot $_sigF, Steps $_stepF, Temp $_tempF, HR $_hrF', style: Theme.of(context).textTheme.bodySmall),
+          ],
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _loading ? null : _fetch,
@@ -359,6 +387,19 @@ class _GetVitalsTabState extends State<_GetVitalsTab> {
           if (_steps.isNotEmpty) _SummaryRow('Step count', '${_steps.length} values', null),
           if (_temps.isNotEmpty) _SummaryRow('Temperature', '${_temps.length} values', '°C'),
           if (_hr.isNotEmpty) _SummaryRow('Heart rate', '${_hr.length} values', 'BPM'),
+          if (_sigMot.isNotEmpty || _steps.isNotEmpty || _temps.isNotEmpty || _hr.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const Text('Parsed values (per overview.md)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            if (_sigMot.isNotEmpty)
+              _VitalsValueSection(title: 'SigMot (per 30s)', values: _sigMot.map((v) => v.toString()).toList()),
+            if (_steps.isNotEmpty)
+              _VitalsValueSection(title: 'Steps', values: _steps.map((v) => v.toString()).toList()),
+            if (_temps.isNotEmpty)
+              _VitalsValueSection(title: 'Temperature (°C)', values: _temps.map((v) => v.toStringAsFixed(1)).toList()),
+            if (_hr.isNotEmpty)
+              _VitalsValueSection(title: 'Heart rate (BPM)', values: _hr.map((v) => v.toString()).toList()),
+          ],
           const SizedBox(height: 24),
           OutlinedButton.icon(
             onPressed: () => showModalBottomSheet(
@@ -391,6 +432,38 @@ class _SummaryRow extends StatelessWidget {
         children: [
           Text(label),
           Text('$value${unit != null ? ' $unit' : ''}'),
+        ],
+      ),
+    );
+  }
+}
+
+class _VitalsValueSection extends StatelessWidget {
+  const _VitalsValueSection({required this.title, required this.values});
+
+  final String title;
+  final List<String> values;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 160),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: values.length,
+              itemBuilder: (context, i) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text('${i + 1}. ${values[i]}', style: Theme.of(context).textTheme.bodySmall),
+              ),
+            ),
+          ),
         ],
       ),
     );

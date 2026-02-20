@@ -4,7 +4,7 @@
 class BleConstants {
   BleConstants._();
 
-  static const String deviceNameFilter = 'SENSIO';
+  static const String deviceNameFilter = 'ORBYt';
   static const String deviceName = 'SENSIO Ring';
   static const int requestedMtu = 450;
 
